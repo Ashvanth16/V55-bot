@@ -42,15 +42,17 @@ async def send(text):
  try:await bot.send_message(chat_id=CHAT_ID,text=text,parse_mode="HTML")
  except Exception as e:print("TELEGRAM ERROR:",e)
 def get_json(url,params=None,timeout=15):
+ r=None
  try:r=session.get(url,params=params,timeout=timeout)
- except:return None
- if r.status_code!=200:print("HTTP ERROR:",r.status_code,url);return None
+ except:pass
+ if not r or r.status_code!=200:print("HTTP ERROR:",url);return None
  return r.json()
 def signed_post(path,payload):
  payload=dict(payload);payload["timestamp"]=int(time.time()*1000);body=json.dumps(payload,separators=(",",":"));signature=hmac.new(API_SECRET.encode(),body.encode(),hashlib.sha256).hexdigest();headers={"Content-Type":"application/json","X-AUTH-APIKEY":API_KEY,"X-AUTH-SIGNATURE":signature}
+ r=None
  try:r=session.post(API+path,data=body,headers=headers,timeout=15)
- except Exception as e:print("AUTH REQUEST ERROR:",e);return None
- if r.status_code!=200:print("AUTH HTTP ERROR:",r.status_code,r.text[:300]);return None
+ except:pass
+ if not r or r.status_code!=200:print("AUTH HTTP ERROR:",r.status_code if r else "None");return None
  return r.json()
 def get_active_instruments():
  url=API+"/exchange/v1/derivatives/futures/data/active_instruments";data=get_json(url,params=[("margin_currency_short_name[]","INR")])
@@ -65,8 +67,9 @@ def select_pairs(active,prices):
  for pair in active:
   p=prices.get(pair)
   if not isinstance(p,dict):continue
+  last=0;volume=0
   try:last=float(p.get("ls",0));volume=float(p.get("v",0))
-  except:continue
+  except:pass
   if last<=0:continue
   turnover=last*volume;candidates.append((pair,turnover))
  candidates.sort(key=lambda x:x[1],reverse=True)
@@ -78,9 +81,10 @@ def get_candles(pair,resolution,limit=300):
  if not isinstance(candles,list):return[]
  cleaned=[]
  for c in candles:
+  item=None
   try:item={"time":int(c["time"]),"open":float(c["open"]),"high":float(c["high"]),"low":float(c["low"]),"close":float(c["close"]),"volume":float(c["volume"])}
-  except:continue
-  if item["time"]+step*1000<=int(time.time()*1000):cleaned.append(item)
+  except:pass
+  if item and item["time"]+step*1000<=int(time.time()*1000):cleaned.append(item)
  cleaned.sort(key=lambda x:x["time"])
  return cleaned[-limit:]
 def aggregate(candles,minutes):
@@ -119,6 +123,7 @@ def avg_volume(candles,period=20):
 def btc_regime(prices):
  btc=prices.get("B-BTC_INR")
  if not btc:return{"valid":False,"reason":"BTC Futures price unavailable"}
+ btc_price=0
  try:btc_price=float(btc["ls"])
  except:return{"valid":False,"reason":"BTC price invalid"}
  h1=get_candles("B-BTC_INR","60",220)
@@ -177,11 +182,15 @@ def calculate_risk(setup,equity):
  if planned_risk>max_risk:return None
  return{"quantity":quantity,"notional":notional,"leverage":leverage,"margin":margin,"planned_risk":planned_risk,"max_risk":max_risk}
 def news_gate():return False,"Reliable news verification provider not configured"
-def get_equity():value=state_get("current_equity",str(STARTING_EQUITY))
- try:returnfloat(value)
- except:return STARTING_EQUITY
+def get_equity():value=state_get("current_equity",str(STARTING_EQUITY));f=0
+ try:f=float(value)
+ except:pass
+ return f if f>0 else STARTING_EQUITY
 def trade_count_30d():con=db();cur=con.cursor();cur.execute("SELECT COUNT(*) FROM signals WHERE datetime(created_at)>=datetime('now','-30 day')");count=cur.fetchone()[0];con.close();return count
-def daily_loss():con=db();cur=con.cursor();today=datetime.now(IST).strftime("%Y-%m-%d");cur.execute("SELECT COALESCE(SUM(pnl),0) FROM signals WHERE substr(created_at,1,10)=?",(today,));value=cur.fetchone()[0];con.close();return float(value or 0)
+def daily_loss():con=db();cur=con.cursor();today=datetime.now(IST).strftime("%Y-%m-%d");cur.execute("SELECT COALESCE(SUM(pnl),0) FROM signals WHERE substr(created_at,1,10)=?",(today,));value=cur.fetchone()[0];con.close();f=0
+ try:f=float(value or 0)
+ except:pass
+ return f
 def save_signal(setup,risk):
  con=db();cur=con.cursor();cur.execute("INSERT INTO signals(created_at,pair,direction,entry,sl,tp1,tp2,quantity,risk,rr,status) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(datetime.now(IST).isoformat(),setup["pair"],setup["direction"],setup["entry"],setup["sl"],setup["tp1"],setup["tp2"],risk["quantity"],risk["planned_risk"],setup["rr"],"SIGNAL"));con.commit();con.close()
 async def send_wait(reason,scanned):await send(f"🔴 <b>V5.5 — WAIT</b>\n\nNo verified A+ setup.\n\n<b>CoinDCX Futures scanner:</b>\n{scanned} pairs checked\n\n<b>Reason:</b>\n{reason}\n\nCapital protection remains active.\n\nNo forced trade.\nNo manufactured signal.")
@@ -205,10 +214,11 @@ async def scan_once():
  candidates=[]
  for pair in pairs:
   if pair=="B-BTC_INR":continue
-  try:current_data=prices.get(pair)
-  except:continue
+  current_data=prices.get(pair)
   if not current_data:continue
-  current=float(current_data.get("ls",0))
+  current=0
+  try:current=float(current_data.get("ls",0))
+  except:pass
   if current<=0:continue
   h1=get_candles(pair,"60",220);m5=get_candles(pair,"5",300)
   if len(h1)<60 or len(m5)<100:continue
@@ -220,7 +230,6 @@ async def scan_once():
    risk=calculate_risk(setup,equity)
    if not risk:continue
    candidates.append((setup,risk))
-  except Exception as e:print("PAIR ERROR:",pair,e)
  if not candidates:await send(f"🔴 <b>V5.5 SCAN COMPLETE — WAIT</b>\n\n<b>CoinDCX INR Futures scanned:</b>\n{len(pairs)}\n\n<b>BTC:</b>\n₹{btc['price']:,.2f}\n\n<b>BTC Zone:</b>\n{btc['zone']}\n\n<b>4H ATR:</b>\n{btc['atr_pct']:.2f}%\n\n<b>1H movement:</b>\n{btc['move_pct']:.2f}%\n\n<b>A+ setups:</b>\n0\nNo candidate passed the complete technical/risk engine.\n\nCapital protection remains active.\n\n🛡️ No forced trade.");return
  candidates.sort(key=lambda x:x[0]["rr"],reverse=True);setup,risk=candidates[0];await send(f"🟡 <b>TECHNICAL CANDIDATE FOUND</b>\n\nPair:\n{setup['pair']}\n\nDirection:\n{setup['direction']}\n\nR:R:\n{setup['rr']:.2f}R\n\nEntry:\n₹{setup['entry']:,.6f}\n\nSL:\n₹{setup['sl']:,.6f}\n\nTP2:\n₹{setup['tp2']:,.6f}\n\nRisk:\n₹{risk['planned_risk']:,.2f}\n\nHowever:\n\n<b>FINAL V5.5 STATUS = WAIT</b>\n\nG8 News verification is not yet connected.\nG9 Abnormal-flow verification is not yet complete.\nG10 OI/liquidation verification is not yet complete.\n\nThe bot will NOT call this A+ until those gates are independently verified.\n\nThis is intentional capital protection.")
 async def heartbeat():await send(f"🤖 <b>CoinDCX V5.5 ENGINE ONLINE</b>\n\nMode:\nSIGNAL ONLY\n\nExecution:\nDISABLED\nUniverse:\nCoinDCX INR Futures\n\nTarget scan:\nTop {SCAN_PAIRS} active pairs\n\nRisk:\n{MAX_RISK_PCT*100:.1f}% maximum planned risk\nMax leverage:\n{MAX_LEVERAGE:.1f}x\nPreferred leverage:\n{PREFERRED_LEVERAGE:.1f}x\nBTC zone monitoring:\nACTIVE\n\nAutomatic order execution:\n❌ DISABLED\nCapital protection:\n🛡️ ACTIVE")
