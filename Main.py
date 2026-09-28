@@ -43,6 +43,10 @@ def get_coindcx_candles(pair, interval="15m"):
                 df['open'] = df['open'].astype(float)
                 df['volume'] = df['volume'].astype(float)
                 return df.sort_values(by='time', ascending=True).reset_index(drop=True)
+            else:
+                print(f"[DEBUG] Empty candles array returned for {pair}")
+        else:
+            print(f"[DEBUG] HTTP {response.status_code} for {pair}")
     except Exception as e:
         print(f"[API ERROR] Market data fetch error for {pair}: {e}")
     return None
@@ -53,9 +57,6 @@ def analyze_btc_zones():
         return "UNKNOWN", 0.0
     completed_close = btc_df.iloc[-2]['close']
     latest_low = btc_df.iloc[-1]['low']
-    
-    # Debug message to verify live API connection
-    print(f"[DATA OK] Live BTC 1H Close fetched: ${completed_close:.2f}")
 
     if latest_low <= 82500.0:
         return "ZONE_3_DANGER", completed_close
@@ -109,22 +110,18 @@ def evaluate_altcoin_setup(pair, btc_regime):
 
 if __name__ == "__main__":
     send_telegram_alert("🚀 CoinDCX V5.5 Signal Engine Active")
-    last_regime = "CHOP_ZONE"
+    last_regime = None
 
     while True:
         try:
             btc_regime, btc_close = analyze_btc_zones()
-            if btc_regime == "ZONE_3_DANGER" and last_regime != "ZONE_3_DANGER":
-                send_telegram_alert("⛔ BTC DANGER ZONE HIT ($82,500). 24-Hour Wait Active.")
-                last_regime = "ZONE_3_DANGER"
-                time.sleep(3600)
-                continue
-            elif btc_regime == "ZONE_1_BULL" and last_regime != "ZONE_1_BULL":
-                send_telegram_alert(f"🟢 BTC BULL ZONE HIT (${btc_close:.2f} > $84,800). Scanning Alts...")
-                last_regime = "ZONE_1_BULL"
-            elif btc_regime == "ZONE_2_BEAR" and last_regime != "ZONE_2_BEAR":
-                send_telegram_alert(f"🔴 BTC BEAR ZONE HIT (${btc_close:.2f} < $83,000). Scanning Alts...")
-                last_regime = "ZONE_2_BEAR"
+            
+            # Send status heartbeat on regime state
+            if btc_regime == "UNKNOWN":
+                print("[WARNING] Market data endpoint returning empty array. Retrying...")
+            elif btc_regime != last_regime:
+                send_telegram_alert(f"📊 Market Status Update\nBTC Status: {btc_regime}\nLatest BTC 1H Close: ${btc_close:.2f}")
+                last_regime = btc_regime
 
             if btc_regime in ["ZONE_1_BULL", "ZONE_2_BEAR"]:
                 for coin in MONITORED_COINS:
@@ -134,6 +131,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[CRITICAL ERROR] Loop error: {e}")
             time.sleep(60)
+
 
 
 
