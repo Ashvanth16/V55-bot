@@ -1,3 +1,4 @@
+
 import os
 import time
 import requests
@@ -28,16 +29,19 @@ def send_telegram_alert(message):
 
 def get_coindcx_candles(pair, interval="15m", limit=50):
     url = f"https://public.coindcx.com/market_data/candles/?pair={pair}&interval={interval}&limit={limit}"
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
-            df = pd.DataFrame(response.json())
-            df['close'] = df['close'].astype(float)
-            df['high'] = df['high'].astype(float)
-            df['low'] = df['low'].astype(float)
-            df['open'] = df['open'].astype(float)
-            df['volume'] = df['volume'].astype(float)
-            return df.sort_values(by='time', ascending=True).reset_index(drop=True)
+            data = response.json()
+            if isinstance(data, list) and len(data) > 0:
+                df = pd.DataFrame(data)
+                df['close'] = df['close'].astype(float)
+                df['high'] = df['high'].astype(float)
+                df['low'] = df['low'].astype(float)
+                df['open'] = df['open'].astype(float)
+                df['volume'] = df['volume'].astype(float)
+                return df.sort_values(by='time', ascending=True).reset_index(drop=True)
     except Exception as e:
         print(f"[API ERROR] Market data fetch error for {pair}: {e}")
     return None
@@ -125,6 +129,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[CRITICAL ERROR] Loop error: {e}")
             time.sleep(60)
-
 
 
