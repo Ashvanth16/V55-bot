@@ -1,10 +1,7 @@
 import os,json,time,math,hmac,hashlib,sqlite3,requests,asyncio;from datetime import datetime,timezone,timedelta;from telegram import Bot;TOKEN=os.getenv("TELEGRAM_BOT_TOKEN");CHAT_ID=os.getenv("TELEGRAM_CHAT_ID");API_KEY=os.getenv("COINDCX_API_KEY");API_SECRET=os.getenv("COINDCX_API_SECRET");STARTING_EQUITY=float(os.getenv("STARTING_EQUITY","5769"));MAX_RISK_PCT=float(os.getenv("MAX_RISK_PCT","0.02"));MAX_LEVERAGE=float(os.getenv("MAX_LEVERAGE","5"));PREFERRED_LEVERAGE=float(os.getenv("PREFERRED_LEVERAGE","3"));SCAN_PAIRS=int(os.getenv("SCAN_PAIRS","30"));SCAN_SECONDS=int(os.getenv("SCAN_SECONDS","300"));FEE_RATE=float(os.getenv("FEE_RATE","0.0005"));SLIPPAGE_RATE=float(os.getenv("SLIPPAGE_RATE","0.0005"));BTC_BULL_ZONE=float(os.getenv("BTC_BULL_ZONE","84800"));BTC_BEAR_ZONE=float(os.getenv("BTC_BEAR_ZONE","83000"));BTC_DANGER_ZONE=float(os.getenv("BTC_DANGER_ZONE","82500"));DATA_DIR=os.getenv("DATA_DIR","/data");os.makedirs(DATA_DIR,exist_ok=True);DB_FILE=os.path.join(DATA_DIR,"v55_state.db");IST=timezone(timedelta(hours=5,minutes=30));PUBLIC="https://public.coindcx.com";API="https://api.coindcx.com";bot=Bot(token=TOKEN);session=requests.Session();session.headers.update({"User-Agent":"CoinDCX-V55-Signal-Bot/1.0"})
 def db():return sqlite3.connect(DB_FILE)
 def init_db():con=db();cur=con.cursor();cur.execute("CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY,value TEXT)");cur.execute("CREATE TABLE IF NOT EXISTS signals (id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT,pair TEXT,direction TEXT,entry REAL,sl REAL,tp1 REAL,tp2 REAL,quantity REAL,risk REAL,rr REAL,status TEXT,outcome TEXT,pnl REAL DEFAULT 0)");cur.execute("CREATE TABLE IF NOT EXISTS transactions (fingerprint TEXT PRIMARY KEY,created_at TEXT,pair TEXT,amount REAL,fee REAL,stage TEXT)");con.commit();con.close()
-def state_get(key,default=None):
- con=db();cur=con.cursor();cur.execute("SELECT value FROM state WHERE key=?",(key,));row=cur.fetchone();con.close()
- if not row:return default
- return row[0]
+def state_get(key,default=None):con=db();cur=con.cursor();cur.execute("SELECT value FROM state WHERE key=?",(key,));row=cur.fetchone();con.close();return row[0] if row else default
 def state_set(key,value):con=db();cur=con.cursor();cur.execute("INSERT INTO state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(key,str(value)));con.commit();con.close()
 async def send(text):
  try:await bot.send_message(chat_id=CHAT_ID,text=text,parse_mode="HTML")
@@ -22,13 +19,13 @@ def signed_post(path,payload):
  if not r or r.status_code!=200:print("AUTH HTTP ERROR:",r.status_code if r else "None");return None
  return r.json()
 def get_active_instruments():
- url=API+"/exchange/v1/derivatives/futures/data/active_instruments";data=get_json(url,params=[("margin_currency_short_name[]","INR")])
+ url=API+"/exchange/v1/derivatives/futures/data/active_instruments";data=signed_post("/exchange/v1/derivatives/futures/data/active_instruments",{"margin_currency_short_name":["INR"]})
  if not isinstance(data,list):print("ACTIVE INSTRUMENT ERROR:",data);return[]
  return[x for x in data if isinstance(x,str)and x.startswith("B-")and x.endswith("_INR")]
 def get_futures_prices():
- url=PUBLIC+"/market_data/v3/current_prices/futures/rt";data=get_json(url)
- if not isinstance(data,dict):return{}
- return data.get("prices",{})
+ data=signed_post("/exchange/v1/markets/ticker",{"timestamp":int(time.time()*1000)})
+ if not isinstance(data,list):return{}
+ return{ x["market"]:{"ls":x["last_price"],"v":x["volume_24h"]} for x in data if "market" in x}
 def select_pairs(active,prices):
  candidates=[]
  for pair in active:
@@ -143,19 +140,17 @@ def calculate_risk(setup,equity):
  if planned_risk>max_risk:return None
  return{"quantity":quantity,"notional":notional,"leverage":leverage,"margin":margin,"planned_risk":planned_risk,"max_risk":max_risk}
 def news_gate():return False,"Reliable news verification provider not configured"
-def get_equity():
- value=state_get("current_equity",str(STARTING_EQUITY));f=0
+def get_equity():value=state_get("current_equity",str(STARTING_EQUITY));f=0
  try:f=float(value)
  except:pass
  return f if f>0 else STARTING_EQUITY
 def trade_count_30d():con=db();cur=con.cursor();cur.execute("SELECT COUNT(*) FROM signals WHERE datetime(created_at)>=datetime('now','-30 day')");count=cur.fetchone()[0];con.close();return count
-def daily_loss():
- con=db();cur=con.cursor();today=datetime.now(IST).strftime("%Y-%m-%d");cur.execute("SELECT COALESCE(SUM(pnl),0) FROM signals WHERE substr(created_at,1,10)=?",(today,));value=cur.fetchone()[0];con.close();f=0
+def daily_loss():con=db();cur=con.cursor();today=datetime.now(IST).strftime("%Y-%m-%d");cur.execute("SELECT COALESCE(SUM(pnl),0) FROM signals WHERE substr(created_at,1,10)=?",(today,));value=cur.fetchone()[0];con.close();f=0
  try:f=float(value or 0)
  except:pass
  return f
-def save_signal(setup,risk):con=db();cur=con.cursor();cur.execute("INSERT INTO signals(created_at,pair,direction,entry,sl,tp1,tp2,quantity,risk,rr,status) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(datetime.now(IST).isoformat(),setup["pair"],setup["direction"],setup["entry"],setup["sl"],setup["tp1"],setup["tp2"],risk["quantity"],risk["planned_risk"],setup["rr"],"SIGNAL"));con.commit();con.close()
-async def send_wait(reason,scanned):await send(f"🔴 <b>V5.5 — WAIT</b>\n\nNo verified A+ setup.\n\n<b>CoinDCX Futures scanner:</b>\n{scanned} pairs checked\n\n<b>Reason:</b>\n{reason}\n\nCapital protection remains active.\n\nNo forced trade.\nNo manufactured signal.")
+def save_signal(setup,risk):con=db();cur=con.cursor();cur.execute("INSERT INTO signals(created_at,pair,direction,entry,sl,tp1,tp2,quantity,risk,rr,status) VALUES(?,?,?,?,?,?,?)",(datetime.now(IST).isoformat(),setup["pair"],setup["direction"],setup["entry"],setup["sl"],setup["tp1"],setup["tp2"],risk["quantity"],risk["planned_risk"],setup["rr"],"SIGNAL"));con.commit();con.close()
+async def send_wait(reason,scanned):await send(f"🔴 <b>V5.5 — WAIT</b>\n\nNo verified A+ setup.\n\n<b>CoinDCX Futures scanner:</b>\n{scanned} pairs checked\n<b>Reason:</b>\n{reason}\n\nCapital protection remains active.\n\nNo forced trade.\nNo manufactured signal.")
 async def scan_once():
  print("\nV5.5 SCAN START");active=get_active_instruments();prices=get_futures_prices()
  if not active:await send_wait("CoinDCX Futures active-instrument data unavailable.",0);return
@@ -194,7 +189,7 @@ async def scan_once():
    candidates.append((setup,risk))
  if not candidates:await send(f"🔴 <b>V5.5 SCAN COMPLETE — WAIT</b>\n\n<b>CoinDCX INR Futures scanned:</b>\n{len(pairs)}\n\n<b>BTC:</b>\n₹{btc['price']:,.2f}\n\n<b>BTC Zone:</b>\n{btc['zone']}\n\n<b>4H ATR:</b>\n{btc['atr_pct']:.2f}%\n\n<b>1H movement:</b>\n{btc['move_pct']:.2f}%\n\n<b>A+ setups:</b>\n0\nNo candidate passed the complete technical/risk engine.\n\nCapital protection remains active.\n\n🛡️ No forced trade.");return
  candidates.sort(key=lambda x:x[0]["rr"],reverse=True);setup,risk=candidates[0];await send(f"🟡 <b>TECHNICAL CANDIDATE FOUND</b>\n\nPair:\n{setup['pair']}\n\nDirection:\n{setup['direction']}\n\nR:R:\n{setup['rr']:.2f}R\n\nEntry:\n₹{setup['entry']:,.6f}\n\nSL:\n₹{setup['sl']:,.6f}\n\nTP2:\n₹{setup['tp2']:,.6f}\n\nRisk:\n₹{risk['planned_risk']:,.2f}\n\nHowever:\n\n<b>FINAL V5.5 STATUS = WAIT</b>\n\nG8 News verification is not yet connected.\nG9 Abnormal-flow verification is not yet complete.\nG10 OI/liquidation verification is not yet complete.\n\nThe bot will NOT call this A+ until those gates are independently verified.\n\nThis is intentional capital protection.")
-async def heartbeat():await send(f"🤖 <b>CoinDCX V5.5 ENGINE ONLINE</b>\n\nMode:\nSIGNAL ONLY\n\nExecution:\nDISABLED\nUniverse:\nCoinDCX INR Futures\n\nTarget scan:\nTop {SCAN_PAIRS} active pairs\n\nRisk:\n{MAX_RISK_PCT*100:.1f}% maximum planned risk\nMax leverage:\n{MAX_LEVERAGE:.1f}x\nPreferred leverage:\n{PREFERRED_LEVERAGE:.1f}x\nBTC zone monitoring:\nACTIVE\n\nAutomatic order execution:\n❌ DISABLED\nCapital protection:\n🛡️ ACTIVE")
+async def heartbeat():await send(f"🤖 <b>CoinDCX V5.5 PRO API ENGINE ONLINE</b>\n\nMode:\nSIGNAL ONLY\n\nExecution:\nDISABLED\nUniverse:\nCoinDCX INR Futures\n\nTarget scan:\nTop {SCAN_PAIRS} active pairs\n\nRisk:\n{MAX_RISK_PCT*100:.1f}% maximum planned risk\nMax leverage:\n{MAX_LEVERAGE:.1f}x\nPreferred leverage:\n{PREFERRED_LEVERAGE:.1f}x\nBTC zone monitoring:\nACTIVE\n\nAutomatic order execution:\n❌ DISABLED\nCapital protection:\n🛡️ ACTIVE")
 async def run():
  init_db();await heartbeat()
  while True:
