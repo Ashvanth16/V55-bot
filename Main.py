@@ -5,7 +5,7 @@ TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID=os.getenv("TELEGRAM_CHAT_ID")
 KEY=os.getenv("COINDCX_API_KEY")
 SECRET=os.getenv("COINDCX_API_SECRET")
-PAIRS=["B-BTCINR","B-ETHINR","B-SOLINR","B-DOGEINR","B-XRPINR","B-ADAINR","B-AVAXINR","B-MATICINR","B-LTCINR","B-DOTINR","B-LINKINR","B-BNBINR","B-TRXINR"]
+PAIRS=["BTCINR","ETHINR","SOLINR","DOGEINR","XRPINR","ADAINR","AVAXINR","MATICINR","LTCINR","DOTINR","LINKINR","BNBINR","TRXINR"]
 SCAN=900
 bot=Bot(token=TOKEN)
 def get_data():
@@ -30,7 +30,7 @@ async def send(t):
  try:await bot.send_message(chat_id=CHAT_ID,text=t,parse_mode="HTML")
  except Exception as e:print("TG ERR:",e)
 async def run():
- await send(f"🚀<b>V5.6.4 Online</b>\nPairs:13\nKey Loaded:{bool(KEY)}")
+ await send(f"🚀<b>V5.6.5 Online</b>\nPairs:13\nKey Loaded:{bool(KEY)}")
  while True:
   t=datetime.now().strftime("%d %b %I:%M:%S %p IST")
   data=get_data()
