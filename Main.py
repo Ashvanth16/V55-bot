@@ -43,15 +43,15 @@ async def send(text):
  except Exception as e:print("TELEGRAM ERROR:",e)
 def get_json(url,params=None,timeout=15):
  try:r=session.get(url,params=params,timeout=timeout)
+ except:return None
  if r.status_code!=200:print("HTTP ERROR:",r.status_code,url);return None
  return r.json()
- except Exception as e:print("REQUEST ERROR:",url,e);return None
 def signed_post(path,payload):
  payload=dict(payload);payload["timestamp"]=int(time.time()*1000);body=json.dumps(payload,separators=(",",":"));signature=hmac.new(API_SECRET.encode(),body.encode(),hashlib.sha256).hexdigest();headers={"Content-Type":"application/json","X-AUTH-APIKEY":API_KEY,"X-AUTH-SIGNATURE":signature}
  try:r=session.post(API+path,data=body,headers=headers,timeout=15)
+ except Exception as e:print("AUTH REQUEST ERROR:",e);return None
  if r.status_code!=200:print("AUTH HTTP ERROR:",r.status_code,r.text[:300]);return None
  return r.json()
- except Exception as e:print("AUTH REQUEST ERROR:",e);return None
 def get_active_instruments():
  url=API+"/exchange/v1/derivatives/futures/data/active_instruments";data=get_json(url,params=[("margin_currency_short_name[]","INR")])
  if not isinstance(data,list):print("ACTIVE INSTRUMENT ERROR:",data);return[]
@@ -66,9 +66,9 @@ def select_pairs(active,prices):
   p=prices.get(pair)
   if not isinstance(p,dict):continue
   try:last=float(p.get("ls",0));volume=float(p.get("v",0))
+  except:continue
   if last<=0:continue
   turnover=last*volume;candidates.append((pair,turnover))
-  except Exception:continue
  candidates.sort(key=lambda x:x[1],reverse=True)
  return[x[0] for x in candidates[:SCAN_PAIRS]]
 def get_candles(pair,resolution,limit=300):
@@ -79,8 +79,8 @@ def get_candles(pair,resolution,limit=300):
  cleaned=[]
  for c in candles:
   try:item={"time":int(c["time"]),"open":float(c["open"]),"high":float(c["high"]),"low":float(c["low"]),"close":float(c["close"]),"volume":float(c["volume"])}
+  except:continue
   if item["time"]+step*1000<=int(time.time()*1000):cleaned.append(item)
-  except Exception:continue
  cleaned.sort(key=lambda x:x["time"])
  return cleaned[-limit:]
 def aggregate(candles,minutes):
@@ -120,7 +120,7 @@ def btc_regime(prices):
  btc=prices.get("B-BTC_INR")
  if not btc:return{"valid":False,"reason":"BTC Futures price unavailable"}
  try:btc_price=float(btc["ls"])
- except Exception:return{"valid":False,"reason":"BTC price invalid"}
+ except:return{"valid":False,"reason":"BTC price invalid"}
  h1=get_candles("B-BTC_INR","60",220)
  if len(h1)<60:return{"valid":False,"reason":"BTC 1H history unavailable"}
  h4=aggregate(h1,240)
@@ -179,15 +179,14 @@ def calculate_risk(setup,equity):
 def news_gate():return False,"Reliable news verification provider not configured"
 def get_equity():value=state_get("current_equity",str(STARTING_EQUITY))
  try:return float(value)
- except Exception:return STARTING_EQUITY
+ except:return STARTING_EQUITY
 def trade_count_30d():con=db();cur=con.cursor();cur.execute("SELECT COUNT(*) FROM signals WHERE datetime(created_at)>=datetime('now','-30 day')");count=cur.fetchone()[0];con.close();return count
 def daily_loss():con=db();cur=con.cursor();today=datetime.now(IST).strftime("%Y-%m-%d");cur.execute("SELECT COALESCE(SUM(pnl),0) FROM signals WHERE substr(created_at,1,10)=?",(today,));value=cur.fetchone()[0];con.close();return float(value or 0)
 def save_signal(setup,risk):
- con=db();cur=con.cursor();cur.execute("INSERT INTO signals(created_at,pair,direction,entry,sl,tp1,tp2,quantity,risk,rr,status) VALUES(?,?,?,?,?,?,?)",(datetime.now(IST).isoformat(),setup["pair"],setup["direction"],setup["entry"],setup["sl"],setup["tp1"],setup["tp2"],risk["quantity"],risk["planned_risk"],setup["rr"],"SIGNAL"));con.commit();con.close()
-def format_ready(setup,risk,equity,btc):return f"""🟢 <b>V5.5 A+ SETUP DETECTED</b>\n\n<b>CoinDCX Futures — SIGNAL ONLY</b>\n\n━━━━━━━━━━━━━━━━━━\n\n<b>PAIR:</b> {setup['pair']}\n<b>DIRECTION:</b> {setup['direction']}\n\n<b>ENTRY:</b> ₹{setup['entry']:,.6f}\n\n<b>STRUCTURAL INVALIDATION:</b>\n₹{setup['invalidation']:,.6f}\n\n<b>FINAL SL:</b>\n₹{setup['sl']:,.6f}\n0.8% structural buffer APPLIED\n\n<b>TP1:</b>\n₹{setup['tp1']:,.6f}\n\n<b>TP2:</b>\n₹{setup['tp2']:,.6f}\n\n<b>R:R:</b> {setup['rr']:.2f}R\n\n━━━━━━━━━━━━━━━━━━\n\n<b>RISK ENGINE</b>\n\nEquity:\n₹{equity:,.2f}\n\nMaximum risk:\n₹{risk['max_risk']:,.2f}\n\nPlanned risk:\n₹{risk['planned_risk']:,.2f}\n\nQuantity:\n{risk['quantity']:.8f}\n\nNotional:\n₹{risk['notional']:,.2f}\n\nLeverage:\n{risk['leverage']:.1f}x\n\nMargin:\n₹{risk['margin']:,.2f}\n\n━━━━━━━━━━━━━━━━━━\n\n<b>BTC REGIME</b>\n\nPrice:\n₹{btc['price']:,.2f}\n\nZone:\n{btc['zone']}\n\n4H ATR:\n{btc['atr_pct']:.2f}%\n\n1H movement:\n{btc['move_pct']:.2f}%\n\n━━━━━━━━━━\n\n<b>STATUS:</b>\nREADY — USER APPROVAL REQUIRED\n\n⚠️ <b>NO ORDER HAS BEEN PLACED.</b>\n\nReply <b>GO</b> only after your own final verification."""
-async def send_wait(reason,scanned):await send(f"""🔴 <b>V5.5 — WAIT</b>\n\nNo verified A+ setup.\n\n<b>CoinDCX Futures scanner:</b>\n{scanned} pairs checked\n\n<b>Reason:</b>\n{reason}\n\nCapital protection remains active.\n\nNo forced trade.\nNo manufactured signal.""")
+ con=db();cur=con.cursor();cur.execute("INSERT INTO signals(created_at,pair,direction,entry,sl,tp1,tp2,quantity,risk,rr,status) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(datetime.now(IST).isoformat(),setup["pair"],setup["direction"],setup["entry"],setup["sl"],setup["tp1"],setup["tp2"],risk["quantity"],risk["planned_risk"],setup["rr"],"SIGNAL"));con.commit();con.close()
+async def send_wait(reason,scanned):await send(f"🔴 <b>V5.5 — WAIT</b>\n\nNo verified A+ setup.\n\n<b>CoinDCX Futures scanner:</b>\n{scanned} pairs checked\n\n<b>Reason:</b>\n{reason}\n\nCapital protection remains active.\n\nNo forced trade.\nNo manufactured signal.")
 async def scan_once():
- print("\n==============================\nV5.5 SCAN START\n==============================");active=get_active_instruments();prices=get_futures_prices()
+ print("\nV5.5 SCAN START");active=get_active_instruments();prices=get_futures_prices()
  if not active:await send_wait("CoinDCX Futures active-instrument data unavailable.",0);return
  pairs=select_pairs(active,prices);print(f"Active INR futures: {len(active)} | Selected: {len(pairs)}")
  if not pairs:await send_wait("No valid CoinDCX INR Futures prices available.",0);return
@@ -207,6 +206,7 @@ async def scan_once():
  for pair in pairs:
   if pair=="B-BTC_INR":continue
   try:current_data=prices.get(pair)
+  except:continue
   if not current_data:continue
   current=float(current_data.get("ls",0))
   if current<=0:continue
@@ -221,13 +221,13 @@ async def scan_once():
    if not risk:continue
    candidates.append((setup,risk))
   except Exception as e:print("PAIR ERROR:",pair,e)
- if not candidates:await send(f"""🔴 <b>V5.5 SCAN COMPLETE — WAIT</b>\n\n<b>CoinDCX INR Futures scanned:</b>\n{len(pairs)}\n\n<b>BTC:</b>\n₹{btc['price']:,.2f}\n\n<b>BTC Zone:</b>\n{btc['zone']}\n\n<b>4H ATR:</b>\n{btc['atr_pct']:.2f}%\n\n<b>1H movement:</b>\n{btc['move_pct']:.2f}%\n\n<b>A+ setups:</b>\n0\n\nNo candidate passed the complete technical/risk engine.\n\nCapital protection remains active.\n\n🛡️ No forced trade.""");return
- candidates.sort(key=lambda x:x[0]["rr"],reverse=True);setup,risk=candidates[0];await send(f"""🟡 <b>TECHNICAL CANDIDATE FOUND</b>\n\nPair:\n{setup['pair']}\n\nDirection:\n{setup['direction']}\n\nR:R:\n{setup['rr']:.2f}R\n\nEntry:\n₹{setup['entry']:,.6f}\n\nSL:\n₹{setup['sl']:,.6f}\n\nTP2:\n₹{setup['tp2']:,.6f}\n\nRisk:\n₹{risk['planned_risk']:,.2f}\n\nHowever:\n\n<b>FINAL V5.5 STATUS = WAIT</b>\n\nG8 News verification is not yet connected.\nG9 Abnormal-flow verification is not yet complete.\nG10 OI/liquidation verification is not yet complete.\n\nThe bot will NOT call this A+ until those gates are independently verified.\n\nThis is intentional capital protection.""")
-async def heartbeat():await send(f"""🤖 <b>CoinDCX V5.5 ENGINE ONLINE</b>\n\nMode:\nSIGNAL ONLY\n\nExecution:\nDISABLED\n\nUniverse:\nCoinDCX INR Futures\n\nTarget scan:\nTop {SCAN_PAIRS} active pairs\n\nRisk:\n{MAX_RISK_PCT*100:.1f}% maximum planned risk\nMax leverage:\n{MAX_LEVERAGE:.1f}x\nPreferred leverage:\n{PREFERRED_LEVERAGE:.1f}x\nBTC zone monitoring:\nACTIVE\n\nAutomatic order execution:\n❌ DISABLED\nCapital protection:\n🛡️ ACTIVE""")
+ if not candidates:await send(f"🔴 <b>V5.5 SCAN COMPLETE — WAIT</b>\n\n<b>CoinDCX INR Futures scanned:</b>\n{len(pairs)}\n\n<b>BTC:</b>\n₹{btc['price']:,.2f}\n\n<b>BTC Zone:</b>\n{btc['zone']}\n\n<b>4H ATR:</b>\n{btc['atr_pct']:.2f}%\n\n<b>1H movement:</b>\n{btc['move_pct']:.2f}%\n\n<b>A+ setups:</b>\n0\nNo candidate passed the complete technical/risk engine.\n\nCapital protection remains active.\n\n🛡️ No forced trade.");return
+ candidates.sort(key=lambda x:x[0]["rr"],reverse=True);setup,risk=candidates[0];await send(f"🟡 <b>TECHNICAL CANDIDATE FOUND</b>\n\nPair:\n{setup['pair']}\n\nDirection:\n{setup['direction']}\n\nR:R:\n{setup['rr']:.2f}R\n\nEntry:\n₹{setup['entry']:,.6f}\n\nSL:\n₹{setup['sl']:,.6f}\n\nTP2:\n₹{setup['tp2']:,.6f}\n\nRisk:\n₹{risk['planned_risk']:,.2f}\n\nHowever:\n\n<b>FINAL V5.5 STATUS = WAIT</b>\n\nG8 News verification is not yet connected.\nG9 Abnormal-flow verification is not yet complete.\nG10 OI/liquidation verification is not yet complete.\n\nThe bot will NOT call this A+ until those gates are independently verified.\n\nThis is intentional capital protection.")
+async def heartbeat():await send(f"🤖 <b>CoinDCX V5.5 ENGINE ONLINE</b>\n\nMode:\nSIGNAL ONLY\n\nExecution:\nDISABLED\nUniverse:\nCoinDCX INR Futures\n\nTarget scan:\nTop {SCAN_PAIRS} active pairs\n\nRisk:\n{MAX_RISK_PCT*100:.1f}% maximum planned risk\nMax leverage:\n{MAX_LEVERAGE:.1f}x\nPreferred leverage:\n{PREFERRED_LEVERAGE:.1f}x\nBTC zone monitoring:\nACTIVE\n\nAutomatic order execution:\n❌ DISABLED\nCapital protection:\n🛡️ ACTIVE")
 async def run():
  init_db();await heartbeat()
  while True:
   try:await scan_once()
-  except Exception as e:print("MAIN LOOP ERROR:",repr(e));await send(f"""⚠️ <b>V5.5 ENGINE ERROR</b>\n\nThe scanner encountered an internal error.\n\n<b>No trade will be generated.</b>\n\nReason:\n{str(e)[:500]}\n\nCapital protection remains active.""")
+  except Exception as e:print("MAIN LOOP ERROR:",repr(e));await send(f"⚠️ <b>V5.5 ENGINE ERROR</b>\n\nThe scanner encountered an internal error.\n\n<b>No trade will be generated.</b>\n\nReason:\n{str(e)[:500]}\n\nCapital protection remains active.")
   await asyncio.sleep(SCAN_SECONDS)
 if __name__=="__main__":asyncio.run(run())
