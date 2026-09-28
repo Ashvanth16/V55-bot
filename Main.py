@@ -74,7 +74,7 @@
         quantity = MAX_RISK_PER_TRADE / total_risk_per_coin
         notional = quantity * entry; margin = notional / PREFERRED_LEVERAGE
         return round(quantity, 4), round(margin, 2)
-   def run_v55_analysis(pair, direction):
+    def run_v55_analysis(pair, direction):
         try:
             data_15m = exchange.fetch_ohlcv(pair, '15m', limit=100)
             data_1h = exchange.fetch_ohlcv(pair, '1h', limit=100)
@@ -97,7 +97,7 @@
             if check_funding_oi(pair) == "FAIL": return {"status": "WAIT", "failed_gate": "G10"}
             return {"status": "READY", "pair": pair, "direction": direction, "entry": round(entry, 4), "sl": round(sl, 4), "tp1": round(tp1, 4), "tp2": round(tp2, 4), "rr": round(rr, 2), "qty": qty, "margin": margin}
         except: return {"status": "WAIT", "failed_gate": "ERROR"}
-   def scan_all_pairs():
+    def scan_all_pairs():
         zone = get_btc_zone()
         if zone == "DANGER": send_telegram("BTC DANGER ZONE HIT. 24-HOUR GLOBAL WAIT."); return
         markets = exchange.load_markets()
