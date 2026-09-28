@@ -21,7 +21,8 @@ IST = pytz.timezone('Asia/Kolkata')
 BTC_BULL_ZONE = 84800
 BTC_BEAR_ZONE = 83000
 BTC_DANGER_ZONE = 82500
-exchange = ccxt.coindcx({'apiKey': API_KEY, 'secret': API_SECRET, 'enableRateLimit': True, 'options': {'defaultType': 'future'}})
+exchange = ccxt.coinex({'apiKey': API_KEY, 'secret': API_SECRET, 'enableRateLimit': True})
+exchange.options['defaultType'] = 'future'
 def send_telegram(message):
     try: requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={'chat_id': TELEGRAM_CHAT_ID, 'text': message})
     except: pass
