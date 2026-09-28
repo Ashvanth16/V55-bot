@@ -1,11 +1,11 @@
-import os,requests,asyncio,json
+import os,requests,asyncio
 from telegram import Bot
 from datetime import datetime
 TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID=os.getenv("TELEGRAM_CHAT_ID")
 KEY=os.getenv("COINDCX_API_KEY")
 SECRET=os.getenv("COINDCX_API_SECRET")
-PAIRS=["BTCINR","ETHINR","SOLINR","DOGEINR","XRPINR","ADAINR","AVAXINR","MATICINR","LTCINR","DOTINR","LINKINR","BNBINR","TRXINR"]
+PAIRS=["B-BTC_INR","B-ETH_INR","B-SOL_INR","B-DOGE_INR","B-XRP_INR","B-ADA_INR","B-AVAX_INR","B-MATIC_INR","B-LTC_INR","B-DOT_INR","B-LINK_INR","B-BNB_INR","B-TRX_INR"]
 SCAN=900
 bot=Bot(token=TOKEN)
 def get_data():
@@ -13,20 +13,15 @@ def get_data():
  try:
   r=requests.get(url,timeout=10)
   d=r.json()
-  if type(d)==list:
-   print("API SAMPLE:",json.dumps(d[0]) if d else "EMPTY") # DEBUG
-   return d
+  if type(d)==list:return d
   else:print("API ERR:",d);return[]
  except Exception as e:print("REQ ERR:",e);return[]
 def get_pair(p,data):
  if type(data)!=list:return None
- p_dash=p[:3]+"-"+p[3:] # BTCINR -> BTC-INR
  for i in data:
-  if type(i)==dict:
-   m=i.get("market","")
-   if m==p or m==p_dash:
-    try:return{"price":float(i.get("last_price",0)),"vol":float(i.get("volume_24h",0)),"ch":float(i.get("change_24_hour",0))}
-    except:return None
+  if type(i)==dict and i.get("market")==p:
+   try:return{"price":float(i.get("last_price",0)),"vol":float(i.get("volume_24h",0)),"ch":float(i.get("change_24_hour",0))}
+   except:return None
  return None
 def check(p,d):
  if abs(d["ch"])>3.0 and d["vol"]>50000000:return True,f"Vol:{d['vol']/10000000:.2f}Cr Move:{d['ch']:.2f}%"
@@ -35,7 +30,7 @@ async def send(t):
  try:await bot.send_message(chat_id=CHAT_ID,text=t,parse_mode="HTML")
  except Exception as e:print("TG ERR:",e)
 async def run():
- await send(f"🚀<b>V5.6.6 Online</b>\nPairs:13\nKey:{bool(KEY)}")
+ await send(f"🚀<b>V5.6.7 Online</b>\nPairs:13\nKey:{bool(KEY)}")
  while True:
   t=datetime.now().strftime("%d %b %I:%M:%S %p IST")
   data=get_data()
