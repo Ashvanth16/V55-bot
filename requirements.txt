@@ -1,4 +1,4 @@
-git+https://github.com/ccxt/ccxt.git
-requests
-numpy
-pytz
+ccxt==4.3.100
+requests==2.32.3
+numpy==2.1.2
+pytz==2024.2
