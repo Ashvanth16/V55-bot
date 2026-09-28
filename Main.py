@@ -178,7 +178,7 @@ def calculate_risk(setup,equity):
  return{"quantity":quantity,"notional":notional,"leverage":leverage,"margin":margin,"planned_risk":planned_risk,"max_risk":max_risk}
 def news_gate():return False,"Reliable news verification provider not configured"
 def get_equity():value=state_get("current_equity",str(STARTING_EQUITY))
- try:return float(value)
+ try:returnfloat(value)
  except:return STARTING_EQUITY
 def trade_count_30d():con=db();cur=con.cursor();cur.execute("SELECT COUNT(*) FROM signals WHERE datetime(created_at)>=datetime('now','-30 day')");count=cur.fetchone()[0];con.close();return count
 def daily_loss():con=db();cur=con.cursor();today=datetime.now(IST).strftime("%Y-%m-%d");cur.execute("SELECT COALESCE(SUM(pnl),0) FROM signals WHERE substr(created_at,1,10)=?",(today,));value=cur.fetchone()[0];con.close();return float(value or 0)
