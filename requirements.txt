@@ -1,4 +1,4 @@
-    ccxt
-    requests
-    numpy
-    pytz
+ccxt>=4.3.0
+requests
+numpy
+pytz
