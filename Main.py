@@ -1,4 +1,3 @@
-
 import os
 import time
 import requests
@@ -27,8 +26,10 @@ def send_telegram_alert(message):
     except Exception as e:
         print(f"[ERROR] Failed to send message: {e}")
 
-def get_coindcx_candles(pair, interval="15m", limit=50):
-    url = f"https://public.coindcx.com/market_data/candles/?pair={pair}&interval={interval}&limit={limit}"
+def get_coindcx_candles(pair, interval="15m"):
+    end_time = int(time.time() * 1000)
+    start_time = end_time - (24 * 60 * 60 * 1000)
+    url = f"https://public.coindcx.com/market_data/candles/?pair={pair}&interval={interval}&startTime={start_time}&endTime={end_time}"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -47,11 +48,15 @@ def get_coindcx_candles(pair, interval="15m", limit=50):
     return None
 
 def analyze_btc_zones():
-    btc_df = get_coindcx_candles("B-BTC_USDT", interval="1h", limit=5)
+    btc_df = get_coindcx_candles("B-BTC_USDT", interval="1h")
     if btc_df is None or len(btc_df) < 2:
         return "UNKNOWN", 0.0
     completed_close = btc_df.iloc[-2]['close']
     latest_low = btc_df.iloc[-1]['low']
+    
+    # Debug message to verify live API connection
+    print(f"[DATA OK] Live BTC 1H Close fetched: ${completed_close:.2f}")
+
     if latest_low <= 82500.0:
         return "ZONE_3_DANGER", completed_close
     elif completed_close > 84800.0:
@@ -62,7 +67,7 @@ def analyze_btc_zones():
         return "CHOP_ZONE", completed_close
 
 def evaluate_altcoin_setup(pair, btc_regime):
-    df = get_coindcx_candles(pair, interval="15m", limit=30)
+    df = get_coindcx_candles(pair, interval="15m")
     if df is None or len(df) < 10:
         return
     current_price = df.iloc[-1]['close']
@@ -129,5 +134,6 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[CRITICAL ERROR] Loop error: {e}")
             time.sleep(60)
+
 
 
